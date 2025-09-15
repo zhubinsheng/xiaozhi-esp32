@@ -9,6 +9,7 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "protocols/sleep_music_protocol.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -406,7 +407,7 @@ void Application::Start() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
     };
     callbacks.on_vad_change = [this](bool speaking) {
-        ESP_LOGI(TAG, "VAD change: %s", speaking ? "speaking" : "not speaking");
+        // ESP_LOGI(TAG, "VAD change: %s", speaking ? "speaking" : "not speaking");
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
     audio_service_.SetCallbacks(callbacks);
@@ -651,6 +652,15 @@ void Application::MainEventLoop() {
 void Application::OnWakeWordDetected() {
     if (!protocol_) {
         return;
+    }
+
+    // 如果处于助眠模式（睡眠音乐通道开启），先关闭它
+    {
+        auto &sleep_protocol = SleepMusicProtocol::GetInstance();
+        if (sleep_protocol.IsAudioChannelOpened()) {
+            ESP_LOGI(TAG, "Wake word detected: closing sleep music channel");
+            sleep_protocol.CloseAudioChannel();
+        }
     }
 
     if (device_state_ == kDeviceStateIdle) {

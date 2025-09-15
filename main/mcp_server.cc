@@ -297,6 +297,10 @@ void McpServer::AddUserOnlyTools() {
         }
     }
 
+    // AddCustomTools();
+}
+
+void McpServer::AddCustomTools() {
     // 日程管理工具
     auto& schedule_manager = ScheduleManager::GetInstance();
     

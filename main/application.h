@@ -63,6 +63,7 @@ public:
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
     void AddAudioData(AudioStreamPacket&& packet);
+    Protocol* GetProtocol() { return protocol_.get(); }
 
 private:
     Application();

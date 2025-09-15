@@ -373,6 +373,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_SURFER_C3_1_14TFT
         bool "Surfer-C3-1-14TFT"
         depends on IDF_TARGET_ESP32C3
+    config BOARD_TYPE_ESP32S3_SMART_SPEAKER
+        bool "ESP32-S3 Smart Speaker"
+        depends on IDF_TARGET_ESP32S3
 endchoice
 
 choice ESP_S3_LCD_EV_Board_Version_TYPE
