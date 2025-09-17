@@ -103,3 +103,45 @@ void SleepMusicProtocol::OnAudioDataReceived(const char* data, size_t len) {
         ESP_LOGW(TAG, "Audio decode queue is full, dropping packet");
     }
 }
+
+bool SleepMusicProtocol::StartSleepMusic() {
+    ESP_LOGI(TAG, "Starting sleep music...");
+    
+    if (IsAudioChannelOpened()) {
+        ESP_LOGI(TAG, "Sleep music already started");
+        return true;
+    }
+    
+    auto &app = Application::GetInstance();
+    // 立刻停止当前语音对话流程（无论在说话还是在监听）
+    app.Schedule([&app]() {
+        // 1) 打断TTS/回复
+        app.AbortSpeaking(kAbortReasonNone);
+        // 2) 通知上游停止监听
+        if (auto* proto = app.GetProtocol()) {
+            proto->SendStopListening();
+            if (proto->IsAudioChannelOpened()) {
+                proto->CloseAudioChannel();
+            }
+        }
+        app.SetDeviceState(kDeviceStateIdle);
+    });
+
+    // 启动协议
+    if (OpenAudioChannel()) {
+        ESP_LOGI(TAG, "Sleep music started successfully");
+        return true;
+    } else {
+        ESP_LOGE(TAG, "Failed to start sleep music");
+        return false;
+    }
+}
+
+bool SleepMusicProtocol::StopSleepMusic() {
+    ESP_LOGI(TAG, "Stopping sleep music...");
+    
+    CloseAudioChannel();
+    
+    ESP_LOGI(TAG, "Sleep music stopped successfully");
+    return true;
+}

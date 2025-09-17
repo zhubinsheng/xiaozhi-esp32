@@ -154,28 +154,9 @@ void ToolsManager::RegisterAudioTools() {
         "启动助眠模式，持续播放助眠音乐",
         PropertyList(),
         [](const PropertyList& properties) -> ReturnValue {
-            // 获取睡眠音乐协议单例
+            // 直接使用睡眠音乐协议的高级封装
             auto& sleep_protocol = SleepMusicProtocol::GetInstance();
-            if (sleep_protocol.IsAudioChannelOpened()) {
-                return std::string("{\"success\": true, \"message\": \"Sleep music already started\"}");
-            }
-            auto &app = Application::GetInstance();
-            // 立刻停止当前语音对话流程（无论在说话还是在监听）
-            app.Schedule([&app]() {
-                // 1) 打断TTS/回复
-                app.AbortSpeaking(kAbortReasonNone);
-                // 2) 通知上游停止监听
-                if (auto* proto = app.GetProtocol()) {
-                    proto->SendStopListening();
-                    if (proto->IsAudioChannelOpened()) {
-                        proto->CloseAudioChannel();
-                    }
-                }
-                app.SetDeviceState(kDeviceStateIdle);
-            });
-
-            // 启动协议
-            if (sleep_protocol.OpenAudioChannel()) {
+            if (sleep_protocol.StartSleepMusic()) {
                 return std::string("{\"success\": true, \"message\": \"Sleep music started successfully\"}");
             } else {
                 return std::string("{\"success\": false, \"message\": \"Failed to start sleep music\"}");
@@ -188,9 +169,9 @@ void ToolsManager::RegisterAudioTools() {
         "停止助眠模式",
         PropertyList(),
         [](const PropertyList& properties) -> ReturnValue {
-            // 获取睡眠音乐协议单例并停止
+            // 直接使用睡眠音乐协议的高级封装
             auto& sleep_protocol = SleepMusicProtocol::GetInstance();
-            sleep_protocol.CloseAudioChannel();
+            sleep_protocol.StopSleepMusic();
             return std::string("{\"success\": true, \"message\": \"Sleep music stopped\"}");
         }
     );

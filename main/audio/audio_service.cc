@@ -338,10 +338,19 @@ void AudioService::OpusCodecTask() {
             if (opus_decoder_->Decode(std::move(packet->payload), task->pcm)) {
                 // Resample if the sample rate is different
                 if (opus_decoder_->sample_rate() != codec_->output_sample_rate()) {
-                    int target_size = output_resampler_.GetOutputSamples(task->pcm.size());
-                    std::vector<int16_t> resampled(target_size);
-                    output_resampler_.Process(task->pcm.data(), task->pcm.size(), resampled.data());
-                    task->pcm = std::move(resampled);
+                    // 添加除零保护
+                    if (task->pcm.size() == 0) {
+                        ESP_LOGW(TAG, "Empty PCM data, skipping resampling");
+                    } else {
+                        int target_size = output_resampler_.GetOutputSamples(task->pcm.size());
+                        if (target_size <= 0) {
+                            ESP_LOGE(TAG, "Invalid target size: %d, input size: %zu", target_size, task->pcm.size());
+                        } else {
+                            std::vector<int16_t> resampled(target_size);
+                            output_resampler_.Process(task->pcm.data(), task->pcm.size(), resampled.data());
+                            task->pcm = std::move(resampled);
+                        }
+                    }
                 }
 
                 lock.lock();
@@ -399,9 +408,19 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
     opus_decoder_ = std::make_unique<OpusDecoderWrapper>(sample_rate, 1, frame_duration);
 
     auto codec = Board::GetInstance().GetAudioCodec();
-    if (opus_decoder_->sample_rate() != codec->output_sample_rate()) {
-        ESP_LOGI(TAG, "Resampling audio from %d to %d", opus_decoder_->sample_rate(), codec->output_sample_rate());
-        output_resampler_.Configure(opus_decoder_->sample_rate(), codec->output_sample_rate());
+
+    int input_rate = opus_decoder_->sample_rate();
+    int output_rate = codec->output_sample_rate();
+    
+    // 添加除零保护
+    if (input_rate <= 0 || output_rate <= 0) {
+        ESP_LOGE(TAG, "Invalid sample rates: input=%d, output=%d", input_rate, output_rate);
+        return;
+    }
+    
+    if (input_rate != output_rate) {
+        ESP_LOGI(TAG, "Resampling audio from %d to %d", input_rate, output_rate);
+        output_resampler_.Configure(input_rate, output_rate);
     }
 }
 

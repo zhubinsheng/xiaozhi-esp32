@@ -60,3 +60,5 @@ esptool.py -p /dev/ttyACM0 -b 1500000 --before default_reset --after hard_reset 
 
 ### 按键配置
 * A：短按-打断/唤醒
+
+bash -lc "source ~/esp/v5.5.1/esp-idf/export.sh && esptool.py -p /dev/ttyACM0 -b 460800 write_flash 0x800000 /home/zhubinsheng/work/esp32/xiaozhi-esp32/scripts/spiffs_assets/build/final/wn9s_nihaoxiaozhi-none-none.bin" | cat

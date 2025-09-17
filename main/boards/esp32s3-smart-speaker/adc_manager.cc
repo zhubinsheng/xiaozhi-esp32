@@ -9,12 +9,11 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include "protocols/sleep_music_protocol.h"
+#include "protocol.h"
+#include "config.h"
 
 #define TAG "AdcManager"
-
-// 检测时间定义（毫秒）
-#define PRESSURE_DETECTION_TIME_MS 2000  // 压力检测持续时间：2秒
-#define LOW_VALUE_DETECTION_TIME_MS 2000 // 低值检测持续时间：2秒
 
 AdcManager &AdcManager::GetInstance() {
   static AdcManager instance;
@@ -28,9 +27,6 @@ bool AdcManager::Initialize() {
   }
 
   ESP_LOGI(TAG, "Initializing AdcManager...");
-
-  // 初始化ADC数组
-  memset(pressure_adc_values_, 0, sizeof(pressure_adc_values_));
 
   InitializeAdc();
 
@@ -49,7 +45,7 @@ bool AdcManager::Initialize() {
   }
 
   // 启动ADC任务
-  // StartAdcTask();
+  StartAdcTask();
 
   ESP_LOGI(TAG, "AdcManager initialized successfully");
   return true;
@@ -84,7 +80,7 @@ void AdcManager::InitializeAdc() {
   ESP_LOGI(TAG, "ADC channel %d configured successfully",
            PRESSURE_SENSOR_ADC_LEFT_CHANNEL);
 
-  // 初始化ADC校准
+  // 初始化ADC校准 (与通道配置保持一致)
   adc_cali_curve_fitting_config_t cali_config = {
       .unit_id = ADC_UNIT_1,
       .atten = ADC_ATTEN_DB_12,
@@ -99,6 +95,8 @@ void AdcManager::InitializeAdc() {
   }
 
   ESP_LOGI(TAG, "ADC initialized for pressure sensor monitoring on GPIO4");
+  ESP_LOGI(TAG, "ADC Config - Channel: %d, Attenuation: 12dB, Bitwidth: 12bit, Range: 0-3.3V", 
+           PRESSURE_SENSOR_ADC_LEFT_CHANNEL);
 }
 
 void AdcManager::ReadPressureSensorData() {
@@ -116,88 +114,13 @@ void AdcManager::ReadPressureSensorData() {
     return;
   }
 
-  // 直接使用原始ADC值，不进行电压转换
+  ESP_LOGI(TAG, "ADC value: %d", adc_value);
+  // 更新压力值
+  last_pressure_value_ = current_pressure_value_;
   current_pressure_value_ = adc_value;
 
-  // 压力检测触发音乐播放
-  static bool last_pressure_state = false;
-  static int64_t pressure_start_time = 0;
-  static bool pressure_triggered = false;
-
-  if (last_pressure_state) {
-    // 长时间不动检测逻辑
-    CheckLongTimeNoMovement(current_pressure_value_);
-  }
-
-  // 每隔5次打印一次详细日志（便于定位问题）
-  static int adc_log_counter = 0;
-  adc_log_counter++;
-  if (adc_log_counter >= 10) {
-    ESP_LOGI(TAG, "ADC read: Raw=%d", adc_value);
-    adc_log_counter = 0;
-  }
-
-  bool current_pressure_state = IsPressureDetected();
-
-  if (current_pressure_state && !last_pressure_state) {
-    // 压力开始检测，记录开始时间
-    pressure_start_time = esp_timer_get_time();
-    pressure_triggered = false;
-    ESP_LOGI(TAG, "Pressure detection started");
-  } else if (current_pressure_state && last_pressure_state) {
-    // 压力持续检测中，检查是否超过2秒
-    int64_t current_time = esp_timer_get_time();
-    int64_t duration_ms =
-        (current_time - pressure_start_time) / 1000; // 转换为毫秒
-
-    if (duration_ms >= PRESSURE_DETECTION_TIME_MS && !pressure_triggered) {
-      ESP_LOGI(TAG,
-               "Pressure detected for %ld ms! Triggering music playback...",
-               (long)duration_ms);
-      // 触发音乐播放
-      TriggerMusicPlayback();
-      pressure_triggered = true; // 防止重复触发
-    }
-  } else if (!current_pressure_state && last_pressure_state) {
-    // 压力结束检测
-    ESP_LOGI(TAG, "Pressure detection ended");
-    pressure_triggered = false;
-  }
-
-  last_pressure_state = current_pressure_state;
-
-  // ADC值小于100时的暂停检测（也需要持续2秒）
-  static int64_t low_value_start_time = 0;
-  static bool low_value_triggered = false;
-
-  if (adc_value < 100) {
-    if (low_value_start_time == 0) {
-      // 第一次检测到小于100的值，记录开始时间
-      low_value_start_time = esp_timer_get_time();
-      low_value_triggered = false;
-      ESP_LOGI(TAG, "ADC low value detection started (value: %d)", adc_value);
-    } else {
-      // 持续检测小于100的值，检查是否超过2秒
-      int64_t current_time = esp_timer_get_time();
-      int64_t duration_ms =
-          (current_time - low_value_start_time) / 1000; // 转换为毫秒
-
-      if (duration_ms >= LOW_VALUE_DETECTION_TIME_MS && !low_value_triggered) {
-        ESP_LOGI(TAG,
-                 "ADC low value detected for %ld ms! (value: %d) Triggering music pause...",
-                 (long)duration_ms, adc_value);
-        TriggerMusicPauseback();
-        low_value_triggered = true; // 防止重复触发
-      }
-    }
-  } else {
-    // ADC值大于等于100，重置低值检测
-    if (low_value_start_time != 0) {
-      ESP_LOGI(TAG, "ADC low value detection ended (value: %d)", adc_value);
-      low_value_start_time = 0;
-      low_value_triggered = false;
-    }
-  }
+  // 处理采样数据
+  ProcessSample();
 }
 
 void AdcManager::StartAdcTask() {
@@ -230,7 +153,8 @@ void AdcManager::AdcTask(void *pvParameters) {
     if (manager->initialized_) {
       manager->ReadPressureSensorData();
     }
-    vTaskDelay(pdMS_TO_TICKS(100)); // 100ms间隔
+    // 固定100ms采样间隔
+    vTaskDelay(pdMS_TO_TICKS(kSamplingInterval));
   }
 }
 
@@ -238,138 +162,103 @@ int AdcManager::GetCurrentPressureValue() const {
   return current_pressure_value_;
 }
 
-const int *AdcManager::GetPressureAdcValues() const {
-  return pressure_adc_values_;
-}
-
 size_t AdcManager::GetPressureSampleCount() const {
-  return (pressure_data_index_ == 0) ? kPressureAdcDataCount
-                                     : pressure_data_index_;
+  return current_sample_index_;  // 返回当前分钟已采集的样本数
 }
 
-bool AdcManager::IsPressureDetected() const {
-  if (!initialized_) {
-    return false;
+void AdcManager::ProcessSample() {
+  int64_t current_time = esp_timer_get_time() / 1000; // 转换为毫秒
+  
+  // 初始化时间
+  if (minute_start_time_ == 0) {
+    minute_start_time_ = current_time;
   }
-  return current_pressure_value_ > 1000; // 压力阈值：100
-}
-
-bool AdcManager::IsLightPressure() const {
-  if (!initialized_) {
-    return false;
-  }
-  return current_pressure_value_ > 500; // 轻压阈值：500
-}
-
-void AdcManager::CheckLongTimeNoMovement(int adc_value) {
-  uint32_t current_time = esp_timer_get_time() / 1000000; // 转换为秒
-
-  // 计算ADC值变化
-  int adc_change = abs(adc_value - last_stable_value_);
-
-  if (adc_change > kMovementThreshold) {
-    // 有显著变化，重置不动检测
-    last_stable_value_ = adc_value;
-    no_movement_start_time_ = current_time;
-    is_no_movement_detected_ = false;
-  } else {
-    // 变化很小，检查是否长时间不动
-    if (no_movement_start_time_ == 0) {
-      no_movement_start_time_ = current_time;
+  
+  // 将当前采样存储到缓存中
+  minute_samples_[current_sample_index_] = current_pressure_value_;
+  
+  // 判断是否有运动，更新静止计数
+  if (current_sample_index_ > 0) { // 需要有上一次采样作为参考
+    if (!IsMovement(current_pressure_value_, minute_samples_[current_sample_index_ - 1])) {
+      static_count_in_minute_++;
     }
+  }
+  
+  current_sample_index_++;
+  
+  // 检查是否完成一分钟的采样
+  int samples_per_minute = GetSamplesPerMinute();
+  if (current_sample_index_ >= samples_per_minute || 
+      (current_time - minute_start_time_) >= 60000) {
+    AnalyzeMinuteData();
+    
+    // 重置一分钟的数据
+    current_sample_index_ = 0;
+    static_count_in_minute_ = 0;
+    minute_start_time_ = current_time;
+    memset(minute_samples_, 0, sizeof(minute_samples_));
+    
+    ESP_LOGI(TAG, "Minute reset: samples_per_minute=%d", GetSamplesPerMinute());
+  }
+}
 
-    uint32_t no_movement_duration = current_time - no_movement_start_time_;
-    if (no_movement_duration >= kLongTimeThreshold &&
-        !is_no_movement_detected_) {
-      is_no_movement_detected_ = true;
-      ESP_LOGW(TAG,
-               "Long time no movement detected! Duration: %lu seconds, ADC: %d",
-               no_movement_duration, adc_value);
+void AdcManager::AnalyzeMinuteData() {
+  // 计算静止比例
+  float static_ratio = (float)static_count_in_minute_ / (float)current_sample_index_;
+  
+  ESP_LOGI(TAG, "Minute analysis: samples=%d, static=%d, ratio=%.2f", 
+           current_sample_index_, static_count_in_minute_, static_ratio);
+  
+  if (static_ratio >= kStaticRatio) {
+    // 这一分钟是静止的
+    consecutive_static_minutes_++;
+    ESP_LOGI(TAG, "Static minute detected, consecutive: %d", consecutive_static_minutes_);
+    
+    // 更新状态为监测或空闲
+    if (detection_state_ == kStateActive) {
+      detection_state_ = kStateMonitoring;
+      ESP_LOGI(TAG, "State changed to Monitoring due to static behavior");
+    }
+  } else {
+    // 这一分钟有活动，重置计数
+    consecutive_static_minutes_ = 0;
+    ESP_LOGI(TAG, "Active minute detected, reset sleep counter");
+    
+    // 更新状态为活跃
+    if (detection_state_ != kStateActive) {
+      detection_state_ = kStateActive;
+      ESP_LOGI(TAG, "State changed to Active due to movement");
+      TriggerMusicPlayback();
+    }
+  }
+  
+  // 检查是否达到睡眠条件
+  UpdateSleepState();
+}
 
-      // 停止音乐播放和语音交互
+bool AdcManager::IsMovement(int current_val, int last_val) const {
+  int diff = abs(current_val - last_val);
+  return diff > kMovementThreshold;
+}
+
+void AdcManager::UpdateSleepState() {
+  if (consecutive_static_minutes_ >= kSleepMinutes) {
+    if (detection_state_ != kStateIdle) {
+      detection_state_ = kStateIdle;
+      ESP_LOGI(TAG, "Sleep detected! %d consecutive static minutes", consecutive_static_minutes_);
       TriggerMusicPauseback();
     }
   }
 }
 
-bool AdcManager::IsLongTimeNoMovement() const {
-  if (!initialized_) {
-    return false;
-  }
-  return is_no_movement_detected_;
-}
-
-uint32_t AdcManager::GetNoMovementDuration() const {
-  if (!initialized_ || no_movement_start_time_ == 0) {
-    return 0;
-  }
-
-  uint32_t current_time = esp_timer_get_time() / 1000000;
-  return current_time - no_movement_start_time_;
-}
-
 void AdcManager::TriggerMusicPauseback() {
-  ESP_LOGI(TAG, "Triggering music pauseback");
-  auto music = Board::GetInstance().GetMusic();
-  if (!music) {
-    ESP_LOGI(TAG, "No music player found");
-    return;
-  }
-  
-  // 检查音乐状态，避免重复操作
-  if (!music->IsPlaying() && !music->IsPaused()) {
-    ESP_LOGI(TAG, "Music is not playing or paused, skipping pause operation");
-    return;
-  }
-  
-  music->PauseSong();
-
-  // 停止语音交互
-  auto &app = Application::GetInstance();
-  app.GetAudioService().EnableWakeWordDetection(false);
-  ESP_LOGI(TAG, "Stopped wake word detection due to long time no movement");
+  ESP_LOGI(TAG, "Triggering sleep music pauseback");
+  auto& sleep_protocol = SleepMusicProtocol::GetInstance();
+  // sleep_protocol.StopSleepMusic();
 }
 
 void AdcManager::TriggerMusicPlayback() {
-  ESP_LOGI(TAG, "Triggering music playback");
-  
-  // 确保音频输出已启用
-  auto& board = Board::GetInstance();
-  auto codec = board.GetAudioCodec();
-  if (!codec) {
-    ESP_LOGE(TAG, "Audio codec not available");
-    return;
-  }
-  
-  codec->EnableOutput(true);
-  ESP_LOGI(TAG, "Audio output enabled");
-  
-  // 通过Board接口获取音乐播放器并触发播放
-  auto music = board.GetMusic();
-  if (!music) {
-    ESP_LOGI(TAG, "No music player found");
-    return;
-  }
-  if (music->IsPlaying()) {
-    ESP_LOGI(TAG, "Music is already playing");
-    return;
-  }
-  if (music->IsDownloading()) {
-    ESP_LOGI(TAG, "Music is already downloading");
-    return;
-  }
-  if (music->IsPaused()) {
-    ESP_LOGI(TAG, "Music is already paused");
-    music->ResumeSong();
-    return;
-  }
-  auto song_name = "稻香";
-  auto artist_name = "";
-  if (!music->Download(song_name, artist_name)) {
-    ESP_LOGI(TAG, "获取音乐资源失败");
-    return;
-  }
-
-  auto download_result = music->GetDownloadResult();
-  ESP_LOGI(TAG, "Music details result: %s", download_result.c_str());
+  ESP_LOGI(TAG, "Triggering sleep music playback");
+  auto& sleep_protocol = SleepMusicProtocol::GetInstance();
+  // sleep_protocol.StartSleepMusic();
 }

@@ -15,6 +15,10 @@ public:
     bool OpenAudioChannel();
     void CloseAudioChannel();
     bool IsAudioChannelOpened() const;
+    
+    // 高级封装方法
+    bool StartSleepMusic();  // 启动睡眠音乐（包含语音对话停止逻辑）
+    bool StopSleepMusic();   // 停止睡眠音乐
 
 private:
     SleepMusicProtocol();

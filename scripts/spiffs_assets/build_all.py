@@ -82,23 +82,15 @@ def build_assets(wakenet_model, text_font, emoji_collection, build_dir, final_di
 def main():
     # Configuration
     wakenet_models = [
-        "none",
-        "wn9_nihaoxiaozhi_tts",
-        "wn9s_nihaoxiaozhi"
+        "wn9_xiaobinxiaobin_tts",
     ]
     
     text_fonts = [
         "none",
-        "font_puhui_common_14_1",
-        "font_puhui_common_16_4", 
-        "font_puhui_common_20_4",
-        "font_puhui_common_30_4",
     ]
     
     emoji_collections = [
         "none",
-        "emojis_32",
-        "emojis_64",
     ]
     
     # Get script directory
