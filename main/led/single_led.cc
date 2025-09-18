@@ -127,8 +127,7 @@ void SingleLed::OnStateChanged() {
         auto detection_state = adc_manager.GetDetectionState();
         switch (detection_state) {
             case kStateWakeUp:
-                SetColor(0, DEFAULT_BRIGHTNESS, 0);  // 绿色常亮 - 起床状态
-                TurnOn();
+                TurnOff();
                 ESP_LOGI(TAG, "LED: Green (Wake Up State)");
                 return;
                 

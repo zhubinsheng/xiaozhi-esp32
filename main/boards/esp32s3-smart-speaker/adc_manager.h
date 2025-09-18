@@ -9,7 +9,7 @@
 
 // 检测状态枚举（对应LED状态指示）
 enum DetectionState {
-    kStateWakeUp,       // 起床状态 - 绿色常亮 (P1)
+    kStateWakeUp,       // 起床状态
     kStateLyingDown,    // 躺下状态 - 黄色常亮 (P1)
     kStateSleeping,     // 睡着状态 - 红色常亮 (P1)
 };

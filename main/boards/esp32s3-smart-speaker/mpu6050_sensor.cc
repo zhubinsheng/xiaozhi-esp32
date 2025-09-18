@@ -109,7 +109,7 @@ bool Mpu6050Sensor::GetAccelerometer(mpu6050_acce_value_t* acce) {
     
     uint8_t data[6];
     if (!ReadRegister(0x3B, data, 6)) {
-        ESP_LOGE(TAG, "Failed to read accelerometer data");
+        // ESP_LOGE(TAG, "Failed to read accelerometer data");
         return false;
     }
     
@@ -244,7 +244,7 @@ bool Mpu6050Sensor::WriteRegister(uint8_t reg_addr, uint8_t data) {
     esp_err_t ret = i2c_master_transmit(device_handle_, write_buf, 2, 1000);
     
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to write register 0x%02X: %s", reg_addr, esp_err_to_name(ret));
+        // ESP_LOGE(TAG, "Failed to write register 0x%02X: %s", reg_addr, esp_err_to_name(ret));
         return false;
     }
     
@@ -259,7 +259,7 @@ bool Mpu6050Sensor::ReadRegister(uint8_t reg_addr, uint8_t* data, size_t len) {
     esp_err_t ret = i2c_master_transmit_receive(device_handle_, &reg_addr, 1, data, len, 1000);
     
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read register 0x%02X: %s", reg_addr, esp_err_to_name(ret));
+        // ESP_LOGE(TAG, "Failed to read register 0x%02X: %s", reg_addr, esp_err_to_name(ret));
         return false;
     }
     

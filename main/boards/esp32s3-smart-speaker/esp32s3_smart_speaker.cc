@@ -28,7 +28,7 @@ private:
     
     // 初始化各个管理器（Initialize内部会自动启动任务）
     AdcManager::GetInstance().Initialize();
-    // ImuManager::GetInstance().Initialize();
+    ImuManager::GetInstance().Initialize();
     ButtonManager::GetInstance().Initialize();
     GpioManager::GetInstance().Initialize();
     ToolsManager::GetInstance().Initialize();

@@ -44,9 +44,6 @@ bool AdcManager::Initialize() {
     ESP_LOGI(TAG, "Initial ADC read ok: Raw=%d", init_read_raw);
     // 初始化成功设置为起床状态
     detection_state_ = kStateWakeUp;
-    // 初始化LED状态
-    auto led = Board::GetInstance().GetLed();
-    led->OnStateChanged();
   }
 
   // 启动ADC任务
@@ -59,10 +56,13 @@ bool AdcManager::Initialize() {
 void AdcManager::InitializeAdc() {
   ESP_LOGI(TAG, "Initializing ADC for pressure sensor on GPIO4 (ADC1_CH3)...");
 
-  // 初始化ADC驱动
+  // 初始化ADC驱动（完整配置）
   adc_oneshot_unit_init_cfg_t init_config1 = {
       .unit_id = ADC_UNIT_1,
+      .clk_src = ADC_RTC_CLK_SRC_RC_FAST,  // 使用更稳定的RC快速时钟源
+      .ulp_mode = ADC_ULP_MODE_DISABLE,    // 禁用ULP模式
   };
+  ESP_LOGI(TAG, "ADC unit config - clk_src: RC_FAST, ulp_mode: DISABLED");
   esp_err_t ret = adc_oneshot_new_unit(&init_config1, &adc1_handle_);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to initialize ADC unit: %s", esp_err_to_name(ret));
@@ -70,9 +70,9 @@ void AdcManager::InitializeAdc() {
   }
   ESP_LOGI(TAG, "ADC unit initialized successfully");
 
-  // 配置ADC通道
+  // 配置ADC通道 (优化衰减设置)
   adc_oneshot_chan_cfg_t chan_config = {
-      .atten = ADC_ATTEN_DB_12,
+      .atten = ADC_ATTEN_DB_6,    // 改为6dB衰减(0-2.2V)，提高精度
       .bitwidth = ADC_BITWIDTH_12,
   };
   ret = adc_oneshot_config_channel(adc1_handle_, PRESSURE_SENSOR_ADC_LEFT_CHANNEL,
@@ -88,9 +88,12 @@ void AdcManager::InitializeAdc() {
   // 初始化ADC校准 (与通道配置保持一致)
   adc_cali_curve_fitting_config_t cali_config = {
       .unit_id = ADC_UNIT_1,
-      .atten = ADC_ATTEN_DB_12,
+      .chan = PRESSURE_SENSOR_ADC_LEFT_CHANNEL,  // 添加通道参数
+      .atten = ADC_ATTEN_DB_6,     // 与通道配置保持一致
       .bitwidth = ADC_BITWIDTH_12,
   };
+  ESP_LOGI(TAG, "ADC calibration config - chan: %d, atten: 6dB, bitwidth: 12bit", 
+           PRESSURE_SENSOR_ADC_LEFT_CHANNEL);
   ret = adc_cali_create_scheme_curve_fitting(&cali_config, &adc1_cali_handle_);
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "ADC calibration not available: %s", esp_err_to_name(ret));
@@ -100,7 +103,7 @@ void AdcManager::InitializeAdc() {
   }
 
   ESP_LOGI(TAG, "ADC initialized for pressure sensor monitoring on GPIO4");
-  ESP_LOGI(TAG, "ADC Config - Channel: %d, Attenuation: 12dB, Bitwidth: 12bit, Range: 0-3.3V", 
+  ESP_LOGI(TAG, "ADC Config - Channel: %d, Attenuation: 6dB, Bitwidth: 12bit, Range: 0-2.2V", 
            PRESSURE_SENSOR_ADC_LEFT_CHANNEL);
 }
 
@@ -119,7 +122,11 @@ void AdcManager::ReadPressureSensorData() {
     return;
   }
 
-  ESP_LOGI(TAG, "ADC value: %d", adc_value);
+  static int log_counter = 0;
+  if (++log_counter >= 100) { // 100次*100ms=10秒
+    ESP_LOGI(TAG, "ADC value: %d", adc_value);
+    log_counter = 0;
+  }
   // 更新压力值
   last_pressure_value_ = current_pressure_value_;
   current_pressure_value_ = adc_value;

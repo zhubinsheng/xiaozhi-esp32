@@ -34,9 +34,8 @@
 #define TEST_BUTTON_GPIO        GPIO_NUM_13
 
 // IMU传感器 (I2C接口)
-#define IMU_I2C_SDA_PIN         GPIO_NUM_NC
-#define IMU_I2C_SCL_PIN         GPIO_NUM_NC
-#define IMU_INT_PIN             GPIO_NUM_NC
+#define IMU_I2C_SDA_PIN         GPIO_NUM_20
+#define IMU_I2C_SCL_PIN         GPIO_NUM_21
 
 // 压感传感器 (ADC接口)
 #define PRESSURE_SENSOR_ADC_LEFT_CHANNEL  ADC_CHANNEL_4  // GPIO4 (ADC1_CHANNEL_3)

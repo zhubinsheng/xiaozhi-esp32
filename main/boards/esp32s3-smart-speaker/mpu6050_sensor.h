@@ -10,7 +10,8 @@
 // MPU6050相关定义
 #define MPU6050_I2C_ADDRESS 0x68
 #define MPU6050_WHO_AM_I_REG 0x75
-#define MPU6050_WHO_AM_I_VAL 0x68
+// 兼容芯片定义
+#define MPU6500_WHO_AM_I_VAL 0x70  // MPU6500/MPU9250兼容芯片
 
 // 加速度计量程
 typedef enum {
