@@ -49,7 +49,7 @@ void WifiManager::SetDefaultCredentials() {
     
     // 添加默认WiFi配置
     auto &wifi_station = WifiStation::GetInstance();
-    wifi_station.AddAuth("xoxo", "12340000");
+    wifi_station.AddAuth("ziroom915", "4001001111");
 
     ESP_LOGI(TAG, "Default WiFi credentials added: SSID=xoxo, Password=12340000");
 }

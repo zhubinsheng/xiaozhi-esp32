@@ -7,11 +7,11 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// 检测状态枚举
+// 检测状态枚举（对应LED状态指示）
 enum DetectionState {
-    kStateIdle,         // 空闲状态（白色）
-    kStateActive,       // 活跃状态（蓝色）
-    kStateMonitoring    // 监测状态（黄色）
+    kStateWakeUp,       // 起床状态 - 绿色常亮 (P1)
+    kStateLyingDown,    // 躺下状态 - 黄色常亮 (P1)
+    kStateSleeping,     // 睡着状态 - 红色常亮 (P1)
 };
 
 class AdcManager {
@@ -63,7 +63,7 @@ private:
     adc_cali_handle_t adc1_cali_handle_;
     
     // 当前检测状态
-    DetectionState detection_state_ = kStateIdle;
+    DetectionState detection_state_ = kStateWakeUp;
     
     // 压感传感器数据
     int current_pressure_value_ = 0;

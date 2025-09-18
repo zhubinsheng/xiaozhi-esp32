@@ -1,5 +1,6 @@
 #include "single_led.h"
 #include "application.h"
+#include "boards/esp32s3-smart-speaker/adc_manager.h"
 #include <esp_log.h> 
 
 #define TAG "SingleLed"
@@ -119,6 +120,33 @@ void SingleLed::OnBlinkTimer() {
 void SingleLed::OnStateChanged() {
     auto& app = Application::GetInstance();
     auto device_state = app.GetDeviceState();
+    
+    // 优先检查压感检测状态 (P1优先级)
+    auto& adc_manager = AdcManager::GetInstance();
+    if (adc_manager.IsInitialized()) {
+        auto detection_state = adc_manager.GetDetectionState();
+        switch (detection_state) {
+            case kStateWakeUp:
+                SetColor(0, DEFAULT_BRIGHTNESS, 0);  // 绿色常亮 - 起床状态
+                TurnOn();
+                ESP_LOGI(TAG, "LED: Green (Wake Up State)");
+                return;
+                
+            case kStateLyingDown:
+                SetColor(DEFAULT_BRIGHTNESS, DEFAULT_BRIGHTNESS, 0);  // 黄色常亮 - 躺下状态
+                TurnOn();
+                ESP_LOGI(TAG, "LED: Yellow (Lying Down State)");
+                return;
+                
+            case kStateSleeping:
+                SetColor(DEFAULT_BRIGHTNESS, 0, 0);  // 红色常亮 - 睡着状态
+                TurnOn();
+                ESP_LOGI(TAG, "LED: Red (Sleeping State)");
+                return;
+        }
+    }
+    
+    // 如果没有压感状态，则使用系统状态 (P0优先级)
     switch (device_state) {
         case kDeviceStateStarting:
             SetColor(0, 0, DEFAULT_BRIGHTNESS);

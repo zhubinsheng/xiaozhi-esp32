@@ -42,6 +42,11 @@ bool AdcManager::Initialize() {
              esp_err_to_name(init_read_ret));
   } else {
     ESP_LOGI(TAG, "Initial ADC read ok: Raw=%d", init_read_raw);
+    // 初始化成功设置为起床状态
+    detection_state_ = kStateWakeUp;
+    // 初始化LED状态
+    auto led = Board::GetInstance().GetLed();
+    led->OnStateChanged();
   }
 
   // 启动ADC任务
@@ -214,20 +219,26 @@ void AdcManager::AnalyzeMinuteData() {
     consecutive_static_minutes_++;
     ESP_LOGI(TAG, "Static minute detected, consecutive: %d", consecutive_static_minutes_);
     
-    // 更新状态为监测或空闲
-    if (detection_state_ == kStateActive) {
-      detection_state_ = kStateMonitoring;
-      ESP_LOGI(TAG, "State changed to Monitoring due to static behavior");
+    // 更新状态为躺下状态
+    if (detection_state_ != kStateLyingDown) {
+      detection_state_ = kStateLyingDown;
+      // 通知LED更新状态
+      auto led = Board::GetInstance().GetLed();
+      led->OnStateChanged();
+      ESP_LOGI(TAG, "State changed to LyingDown due to static behavior");
     }
   } else {
     // 这一分钟有活动，重置计数
     consecutive_static_minutes_ = 0;
     ESP_LOGI(TAG, "Active minute detected, reset sleep counter");
     
-    // 更新状态为活跃
-    if (detection_state_ != kStateActive) {
-      detection_state_ = kStateActive;
-      ESP_LOGI(TAG, "State changed to Active due to movement");
+    // 更新状态为起床状态
+    if (detection_state_ != kStateWakeUp) {
+      detection_state_ = kStateWakeUp;
+      // 通知LED更新状态
+      auto led = Board::GetInstance().GetLed();
+      led->OnStateChanged();
+      ESP_LOGI(TAG, "State changed to WakeUp due to movement");
       TriggerMusicPlayback();
     }
   }
@@ -243,8 +254,11 @@ bool AdcManager::IsMovement(int current_val, int last_val) const {
 
 void AdcManager::UpdateSleepState() {
   if (consecutive_static_minutes_ >= kSleepMinutes) {
-    if (detection_state_ != kStateIdle) {
-      detection_state_ = kStateIdle;
+    if (detection_state_ != kStateSleeping) {
+      detection_state_ = kStateSleeping;
+      // 通知LED更新状态
+      auto led = Board::GetInstance().GetLed();
+      led->OnStateChanged();
       ESP_LOGI(TAG, "Sleep detected! %d consecutive static minutes", consecutive_static_minutes_);
       TriggerMusicPauseback();
     }
