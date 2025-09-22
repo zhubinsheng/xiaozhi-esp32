@@ -6,12 +6,13 @@
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_oneshot.h>
 #include <esp_log.h>
+#include <driver/gpio.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "protocols/sleep_music_protocol.h"
-#include "protocol.h"
 #include "config.h"
+#include "imu_manager.h"
 
 #define TAG "AdcManager"
 
@@ -56,6 +57,15 @@ bool AdcManager::Initialize() {
 void AdcManager::InitializeAdc() {
   ESP_LOGI(TAG, "Initializing ADC for pressure sensor on GPIO4 (ADC1_CH3)...");
 
+  // 确保模拟引脚不被数字GPIO干扰：禁用方向与上下拉
+  gpio_config_t io_conf = {};
+  io_conf.intr_type = GPIO_INTR_DISABLE;
+  io_conf.mode = GPIO_MODE_DISABLE;
+  io_conf.pin_bit_mask = (1ULL << GPIO_NUM_4);
+  io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+  gpio_config(&io_conf);
+
   // 初始化ADC驱动（完整配置）
   adc_oneshot_unit_init_cfg_t init_config1 = {
       .unit_id = ADC_UNIT_1,
@@ -72,7 +82,7 @@ void AdcManager::InitializeAdc() {
 
   // 配置ADC通道 (优化衰减设置)
   adc_oneshot_chan_cfg_t chan_config = {
-      .atten = ADC_ATTEN_DB_6,    // 改为6dB衰减(0-2.2V)，提高精度
+      .atten = ADC_ATTEN_DB_2_5,    // 改为6dB衰减(0-2.2V)，提高精度
       .bitwidth = ADC_BITWIDTH_12,
   };
   ret = adc_oneshot_config_channel(adc1_handle_, PRESSURE_SENSOR_ADC_LEFT_CHANNEL,
@@ -89,7 +99,7 @@ void AdcManager::InitializeAdc() {
   adc_cali_curve_fitting_config_t cali_config = {
       .unit_id = ADC_UNIT_1,
       .chan = PRESSURE_SENSOR_ADC_LEFT_CHANNEL,  // 添加通道参数
-      .atten = ADC_ATTEN_DB_6,     // 与通道配置保持一致
+      .atten = ADC_ATTEN_DB_2_5,     // 与通道配置保持一致
       .bitwidth = ADC_BITWIDTH_12,
   };
   ESP_LOGI(TAG, "ADC calibration config - chan: %d, atten: 6dB, bitwidth: 12bit", 
@@ -123,7 +133,7 @@ void AdcManager::ReadPressureSensorData() {
   }
 
   static int log_counter = 0;
-  if (++log_counter >= 100) { // 100次*100ms=10秒
+  if (++log_counter >= 10) { // 10次*100ms=1秒
     ESP_LOGI(TAG, "ADC value: %d", adc_value);
     log_counter = 0;
   }
@@ -165,8 +175,8 @@ void AdcManager::AdcTask(void *pvParameters) {
     if (manager->initialized_) {
       manager->ReadPressureSensorData();
     }
-    // 固定100ms采样间隔
-    vTaskDelay(pdMS_TO_TICKS(kSamplingInterval));
+    // 固定采样间隔
+    vTaskDelay(pdMS_TO_TICKS(AdcDetectConfig::kSamplingInterval));
   }
 }
 
@@ -175,99 +185,82 @@ int AdcManager::GetCurrentPressureValue() const {
 }
 
 size_t AdcManager::GetPressureSampleCount() const {
-  return current_sample_index_;  // 返回当前分钟已采集的样本数
+  return cumulative_samples_;  // 返回累计样本数
 }
 
 void AdcManager::ProcessSample() {
-  int64_t current_time = esp_timer_get_time() / 1000; // 转换为毫秒
-  
-  // 初始化时间
-  if (minute_start_time_ == 0) {
-    minute_start_time_ = current_time;
-  }
-  
-  // 将当前采样存储到缓存中
-  minute_samples_[current_sample_index_] = current_pressure_value_;
-  
-  // 判断是否有运动，更新静止计数
-  if (current_sample_index_ > 0) { // 需要有上一次采样作为参考
-    if (!IsMovement(current_pressure_value_, minute_samples_[current_sample_index_ - 1])) {
-      static_count_in_minute_++;
-    }
-  }
-  
-  current_sample_index_++;
-  
-  // 检查是否完成一分钟的采样
-  int samples_per_minute = GetSamplesPerMinute();
-  if (current_sample_index_ >= samples_per_minute || 
-      (current_time - minute_start_time_) >= 60000) {
-    AnalyzeMinuteData();
-    
-    // 重置一分钟的数据
-    current_sample_index_ = 0;
-    static_count_in_minute_ = 0;
-    minute_start_time_ = current_time;
-    memset(minute_samples_, 0, sizeof(minute_samples_));
-    
-    ESP_LOGI(TAG, "Minute reset: samples_per_minute=%d", GetSamplesPerMinute());
-  }
-}
+  // 基于阈值的去抖逻辑：>100 持续5秒判定躺下；<100 持续5秒判定起身
+  const int debounce_samples = AdcDetectConfig::kDebounceSamples();
 
-void AdcManager::AnalyzeMinuteData() {
-  // 计算静止比例
-  float static_ratio = (float)static_count_in_minute_ / (float)current_sample_index_;
-  
-  ESP_LOGI(TAG, "Minute analysis: samples=%d, static=%d, ratio=%.2f", 
-           current_sample_index_, static_count_in_minute_, static_ratio);
-  
-  if (static_ratio >= kStaticRatio) {
-    // 这一分钟是静止的
-    consecutive_static_minutes_++;
-    ESP_LOGI(TAG, "Static minute detected, consecutive: %d", consecutive_static_minutes_);
-    
-    // 更新状态为躺下状态
-    if (detection_state_ != kStateLyingDown) {
-      detection_state_ = kStateLyingDown;
-      // 通知LED更新状态
-      auto led = Board::GetInstance().GetLed();
-      led->OnStateChanged();
-      ESP_LOGI(TAG, "State changed to LyingDown due to static behavior");
+  // 仅在“待进入躺下”阶段统计 above；仅在“已躺下”阶段统计 below
+  if (detection_state_ != kStateLyingDown) {
+    // 正在等待判定躺下：只统计 >= 阈值 的连续计数；< 阈值 时对 above 衰减
+    if (current_pressure_value_ >= AdcDetectConfig::kLyingThreshold) {
+      consecutive_above_threshold_samples_++;
+    } else {
+      if (consecutive_above_threshold_samples_ > 0) {
+        consecutive_above_threshold_samples_--;
+      }
     }
+    // 非躺下阶段，不统计 below
+    consecutive_below_threshold_samples_ = 0;
   } else {
-    // 这一分钟有活动，重置计数
-    consecutive_static_minutes_ = 0;
-    ESP_LOGI(TAG, "Active minute detected, reset sleep counter");
-    
-    // 更新状态为起床状态
-    if (detection_state_ != kStateWakeUp) {
-      detection_state_ = kStateWakeUp;
-      // 通知LED更新状态
-      auto led = Board::GetInstance().GetLed();
-      led->OnStateChanged();
-      ESP_LOGI(TAG, "State changed to WakeUp due to movement");
+    // 已处于躺下：只统计 < 阈值 的连续计数；>= 阈值 时对 below 衰减
+    if (current_pressure_value_ < AdcDetectConfig::kLyingThreshold) {
+      consecutive_below_threshold_samples_++;
+    } else {
+      if (consecutive_below_threshold_samples_ > 0) {
+        consecutive_below_threshold_samples_--;
+      }
+    }
+    // 躺下阶段，不再关注 above
+    consecutive_above_threshold_samples_ = 0;
+  }
+
+  // 累计样本
+  cumulative_samples_++;
+  ESP_LOGI(TAG, "ADC value: %d, consecutive_above_threshold_samples_: %d, consecutive_below_threshold_samples_: %d, cumulative_samples_: %d",
+          current_pressure_value_, consecutive_above_threshold_samples_, consecutive_below_threshold_samples_, cumulative_samples_);
+
+  // 进入躺下
+  if (consecutive_above_threshold_samples_ >= debounce_samples && detection_state_ != kStateLyingDown) {
+    detection_state_ = kStateLyingDown;
+    auto& app = Application::GetInstance();
+    auto device_state = app.GetDeviceState();
+    bool in_conversation = (device_state == kDeviceStateListening || device_state == kDeviceStateSpeaking);
+    ESP_LOGI(TAG, "ADC lying down detected: value=%d, above_cnt=%d(~%d ms), in_conversation=%s, sleep_mode_active(before)=%s",
+             current_pressure_value_, consecutive_above_threshold_samples_, AdcDetectConfig::kDebounceMs,
+             in_conversation ? "true" : "false",
+             sleep_mode_active_ ? "true" : "false");
+
+    // 若不在对话中，则进入助眠模式并启动IMU
+    if (!in_conversation && !sleep_mode_active_) {
       TriggerMusicPlayback();
+      ImuManager::GetInstance().StartImuTask();
+      sleep_mode_active_ = true;
+      ESP_LOGI(TAG, "Sleep mode entered: sleep_mode_active(now)=%s",
+               sleep_mode_active_ ? "true" : "false");
     }
   }
-  
-  // 检查是否达到睡眠条件
-  UpdateSleepState();
-}
 
-bool AdcManager::IsMovement(int current_val, int last_val) const {
-  int diff = abs(current_val - last_val);
-  return diff > kMovementThreshold;
-}
+  // 离开躺下（起身）
+  if (consecutive_below_threshold_samples_ >= debounce_samples && detection_state_ != kStateWakeUp) {
+    detection_state_ = kStateWakeUp;
+    auto& app = Application::GetInstance();
+    auto device_state = app.GetDeviceState();
+    bool in_conversation = (device_state == kDeviceStateListening || device_state == kDeviceStateSpeaking);
+    ESP_LOGI(TAG, "ADC wake up detected: value=%d, below_cnt=%d(~%d ms), in_conversation=%s, sleep_mode_active(before)=%s",
+             current_pressure_value_, consecutive_below_threshold_samples_, AdcDetectConfig::kDebounceMs,
+             in_conversation ? "true" : "false",
+             sleep_mode_active_ ? "true" : "false");
 
-void AdcManager::UpdateSleepState() {
-  if (consecutive_static_minutes_ >= kSleepMinutes) {
-    if (detection_state_ != kStateSleeping) {
-      detection_state_ = kStateSleeping;
-      // 通知LED更新状态
-      auto led = Board::GetInstance().GetLed();
-      led->OnStateChanged();
-      ESP_LOGI(TAG, "Sleep detected! %d consecutive static minutes", consecutive_static_minutes_);
+    // 停止助眠并关闭IMU
+    if (sleep_mode_active_) {
       TriggerMusicPauseback();
+      ImuManager::GetInstance().StopImuTask();
+      sleep_mode_active_ = false;
+      ESP_LOGI(TAG, "Sleep mode exited: sleep_mode_active(now)=%s",
+               sleep_mode_active_ ? "true" : "false");
     }
   }
 }
@@ -275,11 +268,15 @@ void AdcManager::UpdateSleepState() {
 void AdcManager::TriggerMusicPauseback() {
   ESP_LOGI(TAG, "Triggering sleep music pauseback");
   auto& sleep_protocol = SleepMusicProtocol::GetInstance();
-  // sleep_protocol.StopSleepMusic();
+  sleep_protocol.StopSleepMusic();
+  auto led = Board::GetInstance().GetLed();
+  led->OnStateChanged();
 }
 
 void AdcManager::TriggerMusicPlayback() {
   ESP_LOGI(TAG, "Triggering sleep music playback");
   auto& sleep_protocol = SleepMusicProtocol::GetInstance();
-  // sleep_protocol.StartSleepMusic();
+  sleep_protocol.StartSleepMusic();
+  auto led = Board::GetInstance().GetLed();
+  led->OnStateChanged();
 }

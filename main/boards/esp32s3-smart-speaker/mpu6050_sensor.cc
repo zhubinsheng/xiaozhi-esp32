@@ -197,7 +197,7 @@ bool Mpu6050Sensor::ComplimentaryFilter(const mpu6050_acce_value_t* acce,
         ESP_LOGE(TAG, "Input pointers are null");
         return false;
     }
-    
+                    
     uint64_t current_time = GetCurrentTimeUs();
     
     // 计算时间间隔
@@ -221,6 +221,21 @@ bool Mpu6050Sensor::ComplimentaryFilter(const mpu6050_acce_value_t* acce,
     last_time_ = current_time;
     
     return true;
+}
+
+bool Mpu6050Sensor::GetAngle(complimentary_angle_t* angle) {
+    if (!angle) {
+        return false;
+    }
+    mpu6050_acce_value_t acce;
+    mpu6050_gyro_value_t gyro;
+    if (!GetAccelerometer(&acce)) {
+        return false;
+    }
+    if (!GetGyroscope(&gyro)) {
+        return false;
+    }
+    return ComplimentaryFilter(&acce, &gyro, angle);
 }
 
 std::string Mpu6050Sensor::GetStatusJson() const {

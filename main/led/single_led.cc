@@ -127,9 +127,8 @@ void SingleLed::OnStateChanged() {
         auto detection_state = adc_manager.GetDetectionState();
         switch (detection_state) {
             case kStateWakeUp:
-                TurnOff();
-                ESP_LOGI(TAG, "LED: Green (Wake Up State)");
-                return;
+                // 移除旧的“起床状态关灯”逻辑，由上层状态统一驱动
+                break;
                 
             case kStateLyingDown:
                 SetColor(DEFAULT_BRIGHTNESS, DEFAULT_BRIGHTNESS, 0);  // 黄色常亮 - 躺下状态
@@ -148,40 +147,40 @@ void SingleLed::OnStateChanged() {
     // 如果没有压感状态，则使用系统状态 (P0优先级)
     switch (device_state) {
         case kDeviceStateStarting:
-            SetColor(0, 0, DEFAULT_BRIGHTNESS);
-            StartContinuousBlink(100);
+            SetColor(0, 0, DEFAULT_BRIGHTNESS); // 蓝色（Blue）
+            StartContinuousBlink(100); // 快速闪烁（Fast blink）
             break;
         case kDeviceStateWifiConfiguring:
-            SetColor(0, 0, DEFAULT_BRIGHTNESS);
-            StartContinuousBlink(500);
+            SetColor(0, 0, DEFAULT_BRIGHTNESS); // 蓝色（Blue）
+            StartContinuousBlink(500); // 慢速闪烁（Slow blink）
             break;
         case kDeviceStateIdle:
-            TurnOff();
+            TurnOff(); // 熄灭（Off）
             break;
         case kDeviceStateConnecting:
-            SetColor(0, 0, DEFAULT_BRIGHTNESS);
+            SetColor(0, 0, DEFAULT_BRIGHTNESS); // 蓝色常亮（Blue solid）
             TurnOn();
             break;
         case kDeviceStateListening:
         case kDeviceStateAudioTesting:
             if (app.IsVoiceDetected()) {
-                SetColor(HIGH_BRIGHTNESS, 0, 0);
+                SetColor(HIGH_BRIGHTNESS, 0, 0); // 红色（Red，高亮）
             } else {
-                SetColor(LOW_BRIGHTNESS, 0, 0);
+                SetColor(LOW_BRIGHTNESS, 0, 0); // 红色（Red，低亮）
             }
-            TurnOn();
+            TurnOn(); // 红色常亮（Red solid）
             break;
         case kDeviceStateSpeaking:
-            SetColor(0, DEFAULT_BRIGHTNESS, 0);
-            TurnOn();
+            SetColor(0, DEFAULT_BRIGHTNESS, 0); // 绿色（Green）
+            TurnOn(); // 绿色常亮（Green solid）
             break;
         case kDeviceStateUpgrading:
-            SetColor(0, DEFAULT_BRIGHTNESS, 0);
-            StartContinuousBlink(100);
+            SetColor(0, DEFAULT_BRIGHTNESS, 0); // 绿色（Green）
+            StartContinuousBlink(100); // 快速闪烁（Fast blink）
             break;
         case kDeviceStateActivating:
-            SetColor(0, DEFAULT_BRIGHTNESS, 0);
-            StartContinuousBlink(500);
+            SetColor(0, DEFAULT_BRIGHTNESS, 0); // 绿色（Green）
+            StartContinuousBlink(500); // 慢速闪烁（Slow blink）
             break;
         default:
             ESP_LOGW(TAG, "Unknown led strip event: %d", device_state);

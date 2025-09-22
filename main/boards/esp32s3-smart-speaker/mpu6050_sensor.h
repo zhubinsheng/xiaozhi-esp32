@@ -125,6 +125,9 @@ public:
                            const mpu6050_gyro_value_t* gyro, 
                            complimentary_angle_t* angle);
 
+    // 读取姿态角（内部读取加速度计与陀螺仪并执行互补滤波）
+    bool GetAngle(complimentary_angle_t* angle);
+
     /**
      * @brief 检查传感器是否已初始化
      * @return true表示已初始化，false表示未初始化

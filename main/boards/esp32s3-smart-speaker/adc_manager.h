@@ -28,7 +28,7 @@ public:
     int GetCurrentPressureValue() const;
     
     // 获取压感样本统计信息
-    size_t GetPressureSampleCount() const;  // 获取当前分钟已采集的样本数
+    size_t GetPressureSampleCount() const;  // 获取累计采样数
     
     // 启动/停止ADC任务
     void StartAdcTask();
@@ -52,10 +52,8 @@ private:
     AdcManager& operator=(const AdcManager&) = delete;
     
     void InitializeAdc();
-    void ProcessSample();                          // 处理单次采样
-    void AnalyzeMinuteData();                      // 分析一分钟数据
-    bool IsMovement(int current_val, int last_val) const; // 判断是否有运动
-    void UpdateSleepState();                       // 更新睡眠状态
+    void ProcessSample();                          // 处理单次采样（阈值去抖逻辑）
+    // 旧的分钟统计逻辑已废弃
     static void AdcTask(void *pvParameters);
     
     bool initialized_ = false;
@@ -69,30 +67,24 @@ private:
     int current_pressure_value_ = 0;
     int last_pressure_value_ = 0;
     
-    // 统计分析相关变量
-    static constexpr int kMovementThreshold = 20;  // 运动检测变化阈值
-    static constexpr float kStaticRatio = 0.9f;    // 静止比例阈值 (90%)
-    static constexpr int kSleepMinutes = 5;        // 连续静止5分钟判定为睡眠
+    // 新：阈值+去抖配置
+    struct AdcDetectConfig {
+        static constexpr int kLyingThreshold = 150;           // >200 认为被压（躺下）
+        static constexpr int kDebounceMs = 5000;              // 去抖时长（毫秒）
+        static constexpr int64_t kSamplingInterval = 100;     // 统一100ms采样间隔
+        static constexpr int kDebounceSamples() { return (int)(kDebounceMs / kSamplingInterval); }
+    };
     
-    // 采样间隔配置（毫秒）
-    static constexpr int64_t kSamplingInterval = 100;  // 统一100ms采样间隔
+    // 去抖计数器（基于采样次数）
+    int consecutive_above_threshold_samples_ = 0;      // 连续高于阈值的样本数
+    int consecutive_below_threshold_samples_ = 0;      // 连续低于阈值的样本数
+    size_t cumulative_samples_ = 0;                    // 累计样本数
     
-    // 计算每分钟采样次数
-    int GetSamplesPerMinute() const {
-        return 60000 / kSamplingInterval;  // 60秒 / 100ms = 600次
-    }
+    // 助眠模式状态（ADC管理层面）
+    bool sleep_mode_active_ = false;                   // 是否已进入助眠模式
     
-    // 数据缓存（动态大小，最大按100ms间隔计算）
-    static constexpr int kMaxSamplesPerMinute = 600;  // 最大采样数（100ms间隔）
-    int minute_samples_[kMaxSamplesPerMinute];        // 当前分钟的采样数据
-    int current_sample_index_ = 0;                    // 当前采样索引
-    int static_count_in_minute_ = 0;                  // 当前分钟静止次数
-    int consecutive_static_minutes_ = 0;              // 连续静止分钟数
-    
-    // 时间控制
-    int64_t last_sample_time_ = 0;
-    int64_t minute_start_time_ = 0;
-    
+    // 旧分钟统计缓存与时间控制已移除
+
     // 任务句柄
     TaskHandle_t adc_task_handle_ = nullptr;
 };

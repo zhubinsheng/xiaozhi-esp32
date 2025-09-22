@@ -20,13 +20,11 @@
 
 class Esp32s3SmartSpeaker : public WifiBoard {
 private:
-  // I2C总线句柄
-  i2c_master_bus_handle_t codec_i2c_bus_;
 
   void InitializeManagers() {
     ESP_LOGI(TAG, "Initializing managers...");
     
-    // 初始化各个管理器（Initialize内部会自动启动任务）
+    // 初始化各个管理器（IMU不自启，由ADC躺下检测控制启停）
     AdcManager::GetInstance().Initialize();
     ImuManager::GetInstance().Initialize();
     ButtonManager::GetInstance().Initialize();
@@ -47,7 +45,7 @@ public:
     ESP_LOGI(TAG, "Initializing ESP32-S3 Smart Speaker");
 
     // 初始化音乐播放器
-    music_ = new Esp32Music();
+    music_ = new Esp32Music(); // Board::music_ 类型为 Music*，Esp32Music 继承自 Music
     ESP_LOGI(TAG, "Music player initialized");
 
     // 初始化I2C总线
@@ -109,8 +107,8 @@ public:
       pressure_value = adc_manager.GetCurrentPressureValue();
       pressure_sample_count = adc_manager.GetPressureSampleCount();
       
-      auto imu_sensor = imu_manager.GetImuSensor();
-      imu_sensor_initialized = imu_sensor && imu_sensor->IsInitialized();
+      // 使用官方组件后不再暴露底层传感器实例，这里用初始化状态表示
+      imu_sensor_initialized = imu_initialized;
     } catch (...) {
       ESP_LOGW(TAG, "Error accessing managers in GetBoardJson, using default values");
     }

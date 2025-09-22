@@ -51,5 +51,5 @@ void WifiManager::SetDefaultCredentials() {
     auto &wifi_station = WifiStation::GetInstance();
     wifi_station.AddAuth("ziroom915", "4001001111");
 
-    ESP_LOGI(TAG, "Default WiFi credentials added: SSID=xoxo, Password=12340000");
+    ESP_LOGI(TAG, "Default WiFi credentials added: SSID=ziroom915, Password=4001001111");
 }
