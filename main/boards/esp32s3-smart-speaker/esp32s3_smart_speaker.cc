@@ -28,7 +28,7 @@ private:
     AdcManager::GetInstance().Initialize();
     ImuManager::GetInstance().Initialize();
     ButtonManager::GetInstance().Initialize();
-    GpioManager::GetInstance().Initialize();
+    // GpioManager::GetInstance().Initialize();
     ToolsManager::GetInstance().Initialize();
     WifiManager::GetInstance().Initialize();
     

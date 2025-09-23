@@ -69,8 +69,13 @@ private:
     
     // 新：阈值+去抖配置
     struct AdcDetectConfig {
-        static constexpr int kLyingThreshold = 150;           // >200 认为被压（躺下）
+        static constexpr int kLyingThreshold = 150;           // 中心阈值（兼容保留）
+        static constexpr int kLyingHigh = 160;                // 滞回上阈：进入躺下判定
+        static constexpr int kLyingLow  = 140;                 // 滞回下阈：起身判定
         static constexpr int kDebounceMs = 5000;              // 去抖时长（毫秒）
+        static constexpr int kRefractoryMs = 2000;            // 状态切换保护期（毫秒）
+        static constexpr int kDecayAbove = 1;                 // 计数回退步长（above）
+        static constexpr int kDecayBelow = 1;                 // 计数回退步长（below）
         static constexpr int64_t kSamplingInterval = 100;     // 统一100ms采样间隔
         static constexpr int kDebounceSamples() { return (int)(kDebounceMs / kSamplingInterval); }
     };
@@ -79,6 +84,8 @@ private:
     int consecutive_above_threshold_samples_ = 0;      // 连续高于阈值的样本数
     int consecutive_below_threshold_samples_ = 0;      // 连续低于阈值的样本数
     size_t cumulative_samples_ = 0;                    // 累计样本数
+    int64_t last_state_change_ms_ = 0;                 // 上次状态切换时间（ms）
+    int ema_value_ = 0;                                // EMA平滑值（仅日志展示）
     
     // 助眠模式状态（ADC管理层面）
     bool sleep_mode_active_ = false;                   // 是否已进入助眠模式

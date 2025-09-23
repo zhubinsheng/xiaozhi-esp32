@@ -3,6 +3,7 @@
 #include <board.h>
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_oneshot.h>
 #include <esp_log.h>
@@ -69,8 +70,8 @@ void AdcManager::InitializeAdc() {
   // 初始化ADC驱动（完整配置）
   adc_oneshot_unit_init_cfg_t init_config1 = {
       .unit_id = ADC_UNIT_1,
-      .clk_src = ADC_RTC_CLK_SRC_RC_FAST,  // 使用更稳定的RC快速时钟源
-      .ulp_mode = ADC_ULP_MODE_DISABLE,    // 禁用ULP模式
+      // .clk_src = ADC_RTC_CLK_SRC_RC_FAST,  // 使用更稳定的RC快速时钟源
+      // .ulp_mode = ADC_ULP_MODE_DISABLE,    // 禁用ULP模式
   };
   ESP_LOGI(TAG, "ADC unit config - clk_src: RC_FAST, ulp_mode: DISABLED");
   esp_err_t ret = adc_oneshot_new_unit(&init_config1, &adc1_handle_);
@@ -82,8 +83,8 @@ void AdcManager::InitializeAdc() {
 
   // 配置ADC通道 (优化衰减设置)
   adc_oneshot_chan_cfg_t chan_config = {
-      .atten = ADC_ATTEN_DB_2_5,    // 改为6dB衰减(0-2.2V)，提高精度
-      .bitwidth = ADC_BITWIDTH_12,
+      .atten = ADC_ATTEN_DB_12,
+      .bitwidth = ADC_BITWIDTH_DEFAULT,
   };
   ret = adc_oneshot_config_channel(adc1_handle_, PRESSURE_SENSOR_ADC_LEFT_CHANNEL,
                                    &chan_config);
@@ -99,10 +100,10 @@ void AdcManager::InitializeAdc() {
   adc_cali_curve_fitting_config_t cali_config = {
       .unit_id = ADC_UNIT_1,
       .chan = PRESSURE_SENSOR_ADC_LEFT_CHANNEL,  // 添加通道参数
-      .atten = ADC_ATTEN_DB_2_5,     // 与通道配置保持一致
-      .bitwidth = ADC_BITWIDTH_12,
+      .atten = ADC_ATTEN_DB_12,     // 与通道配置保持一致
+      .bitwidth = ADC_BITWIDTH_DEFAULT,
   };
-  ESP_LOGI(TAG, "ADC calibration config - chan: %d, atten: 6dB, bitwidth: 12bit", 
+  ESP_LOGI(TAG, "ADC calibration config - chan: %d, atten: 12dB, bitwidth: 12bit", 
            PRESSURE_SENSOR_ADC_LEFT_CHANNEL);
   ret = adc_cali_create_scheme_curve_fitting(&cali_config, &adc1_cali_handle_);
   if (ret != ESP_OK) {
@@ -112,8 +113,8 @@ void AdcManager::InitializeAdc() {
     ESP_LOGI(TAG, "ADC calibration initialized successfully");
   }
 
-  ESP_LOGI(TAG, "ADC initialized for pressure sensor monitoring on GPIO4");
-  ESP_LOGI(TAG, "ADC Config - Channel: %d, Attenuation: 6dB, Bitwidth: 12bit, Range: 0-2.2V", 
+  ESP_LOGI(TAG, "ADC initialized for pressure sensor monitoring");
+  ESP_LOGI(TAG, "ADC Config - Channel: %d, Attenuation: 12dB, Bitwidth: 12bit, Range: ~0-3.3V", 
            PRESSURE_SENSOR_ADC_LEFT_CHANNEL);
 }
 
@@ -122,19 +123,55 @@ void AdcManager::ReadPressureSensorData() {
     return;
   }
 
-  int adc_value;
-  esp_err_t ret =
-      adc_oneshot_read(adc1_handle_, PRESSURE_SENSOR_ADC_LEFT_CHANNEL, &adc_value);
-
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to read pressure sensor ADC: %s",
-             esp_err_to_name(ret));
+  // 多次采样 + 去极值平均，降低尖峰/串扰影响
+  static constexpr int kReads = 12;
+  int values[kReads];
+  int success_count = 0;
+  for (int i = 0; i < kReads; ++i) {
+    int v = 0;
+    esp_err_t ret = adc_oneshot_read(adc1_handle_, PRESSURE_SENSOR_ADC_LEFT_CHANNEL, &v);
+    if (ret == ESP_OK) {
+      values[success_count++] = v;
+    }
+  }
+  if (success_count == 0) {
+    ESP_LOGE(TAG, "Failed to read pressure sensor ADC: all samples failed");
     return;
   }
+  // 单遍扫描求和+极值，避免排序带来的小数组静态阈值告警
+  int min1 = 0x7FFFFFFF, min2 = 0x7FFFFFFF;
+  int max1 = -0x7FFFFFFF, max2 = -0x7FFFFFFF;
+  long sum = 0;
+  for (int i = 0; i < success_count; ++i) {
+    int v = values[i];
+    sum += v;
+    if (v < min1) { min2 = min1; min1 = v; }
+    else if (v < min2) { min2 = v; }
+    if (v > max1) { max2 = max1; max1 = v; }
+    else if (v > max2) { max2 = v; }
+  }
+  int remove_cnt = 0;
+  long remove_sum = 0;
+  if (success_count >= 8) { // 丢2大2小
+    remove_cnt = 4;
+    remove_sum = (long)min1 + min2 + max1 + max2;
+  } else if (success_count >= 5) { // 丢1大1小
+    remove_cnt = 2;
+    remove_sum = (long)min1 + max1;
+  }
+  int denom = success_count - remove_cnt;
+  int adc_value = (denom > 0) ? static_cast<int>((sum - remove_sum) / denom) : values[0];
 
   static int log_counter = 0;
   if (++log_counter >= 10) { // 10次*100ms=1秒
-    ESP_LOGI(TAG, "ADC value: %d", adc_value);
+    // EMA 仅用于日志观测趋势，不参与判定
+    if (cumulative_samples_ == 0) {
+      ema_value_ = adc_value;
+    } else {
+      // alpha=0.2 -> 80%保留历史
+      ema_value_ = (ema_value_ * 8 + adc_value * 2) / 10;
+    }
+    ESP_LOGI(TAG, "ADC value: %d (ema:%d)", adc_value, ema_value_);
     log_counter = 0;
   }
   // 更新压力值
@@ -189,28 +226,29 @@ size_t AdcManager::GetPressureSampleCount() const {
 }
 
 void AdcManager::ProcessSample() {
-  // 基于阈值的去抖逻辑：>100 持续5秒判定躺下；<100 持续5秒判定起身
+  // 基于滞回阈值+去抖+保护期：>=kLyingHigh 持续5秒判定躺下；<kLyingLow 持续5秒判定起身
   const int debounce_samples = AdcDetectConfig::kDebounceSamples();
+  const int64_t now_ms = (int64_t)(esp_timer_get_time() / 1000);
 
-  // 仅在“待进入躺下”阶段统计 above；仅在“已躺下”阶段统计 below
+  // 仅在“待进入躺下”阶段统计 above；仅在“已躺下”阶段统计 below（可配置衰减步长）
   if (detection_state_ != kStateLyingDown) {
-    // 正在等待判定躺下：只统计 >= 阈值 的连续计数；< 阈值 时对 above 衰减
-    if (current_pressure_value_ >= AdcDetectConfig::kLyingThreshold) {
+    // 正在等待判定躺下：只统计 >= 上阈 的连续计数；< 下阈 时对 above 衰减
+    if (current_pressure_value_ >= AdcDetectConfig::kLyingHigh) {
       consecutive_above_threshold_samples_++;
     } else {
       if (consecutive_above_threshold_samples_ > 0) {
-        consecutive_above_threshold_samples_--;
+        consecutive_above_threshold_samples_ = std::max(0, consecutive_above_threshold_samples_ - AdcDetectConfig::kDecayAbove);
       }
     }
     // 非躺下阶段，不统计 below
     consecutive_below_threshold_samples_ = 0;
   } else {
-    // 已处于躺下：只统计 < 阈值 的连续计数；>= 阈值 时对 below 衰减
-    if (current_pressure_value_ < AdcDetectConfig::kLyingThreshold) {
+    // 已处于躺下：只统计 < 下阈 的连续计数；>= 上阈 时对 below 衰减
+    if (current_pressure_value_ < AdcDetectConfig::kLyingLow) {
       consecutive_below_threshold_samples_++;
     } else {
       if (consecutive_below_threshold_samples_ > 0) {
-        consecutive_below_threshold_samples_--;
+        consecutive_below_threshold_samples_ = std::max(0, consecutive_below_threshold_samples_ - AdcDetectConfig::kDecayBelow);
       }
     }
     // 躺下阶段，不再关注 above
@@ -219,12 +257,17 @@ void AdcManager::ProcessSample() {
 
   // 累计样本
   cumulative_samples_++;
-  ESP_LOGI(TAG, "ADC value: %d, consecutive_above_threshold_samples_: %d, consecutive_below_threshold_samples_: %d, cumulative_samples_: %d",
-          current_pressure_value_, consecutive_above_threshold_samples_, consecutive_below_threshold_samples_, cumulative_samples_);
+  ESP_LOGI(TAG, "ADC value: %d (ema:%d), above:%d, below:%d, total:%d",
+          current_pressure_value_, ema_value_, consecutive_above_threshold_samples_, consecutive_below_threshold_samples_, cumulative_samples_);
 
   // 进入躺下
   if (consecutive_above_threshold_samples_ >= debounce_samples && detection_state_ != kStateLyingDown) {
+    // 保护期：刚切换后的一小段时间不允许反向切换
+    if (last_state_change_ms_ != 0 && (now_ms - last_state_change_ms_) < AdcDetectConfig::kRefractoryMs) {
+      return;
+    }
     detection_state_ = kStateLyingDown;
+    last_state_change_ms_ = now_ms;
     auto& app = Application::GetInstance();
     auto device_state = app.GetDeviceState();
     bool in_conversation = (device_state == kDeviceStateListening || device_state == kDeviceStateSpeaking);
@@ -245,7 +288,11 @@ void AdcManager::ProcessSample() {
 
   // 离开躺下（起身）
   if (consecutive_below_threshold_samples_ >= debounce_samples && detection_state_ != kStateWakeUp) {
+    if (last_state_change_ms_ != 0 && (now_ms - last_state_change_ms_) < AdcDetectConfig::kRefractoryMs) {
+      return;
+    }
     detection_state_ = kStateWakeUp;
+    last_state_change_ms_ = now_ms;
     auto& app = Application::GetInstance();
     auto device_state = app.GetDeviceState();
     bool in_conversation = (device_state == kDeviceStateListening || device_state == kDeviceStateSpeaking);

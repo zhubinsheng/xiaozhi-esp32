@@ -60,8 +60,8 @@ bool Mpu6050Sensor::Initialize(mpu6050_acce_fs_t acce_fs, mpu6050_gyro_fs_t gyro
         return false;
     }
     
-    // 配置采样率 (1kHz / (1 + 7) = 125Hz)
-    if (!WriteRegister(0x19, 0x07)) {
+    // 配置采样率 (1kHz / (1 + 89) = 11Hz)
+    if (!WriteRegister(0x19, 0x59)) {
         ESP_LOGE(TAG, "Failed to configure sample rate");
         return false;
     }
@@ -245,7 +245,7 @@ std::string Mpu6050Sensor::GetStatusJson() const {
     json += "\"accelerometer_range\":" + std::to_string(static_cast<int>(acce_fs_)) + ",";
     json += "\"gyroscope_range\":" + std::to_string(static_cast<int>(gyro_fs_)) + ",";
     json += "\"filter_alpha\":" + std::to_string(alpha_) + ",";
-    json += "\"sample_rate\":125";
+    json += "\"sample_rate\":11";
     json += "}";
     return json;
 }
