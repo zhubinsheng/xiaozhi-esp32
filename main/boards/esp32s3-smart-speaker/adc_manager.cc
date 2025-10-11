@@ -312,6 +312,15 @@ void AdcManager::ProcessSample() {
   }
 }
 
+void AdcManager::SetSleepingState() {
+  if (detection_state_ != kStateSleeping) {
+    detection_state_ = kStateSleeping;
+    ESP_LOGI(TAG, "Detection state set to SLEEPING by IMU");
+    auto led = Board::GetInstance().GetLed();
+    led->OnStateChanged();
+  }
+}
+
 void AdcManager::TriggerMusicPauseback() {
   ESP_LOGI(TAG, "Triggering sleep music pauseback");
   auto& sleep_protocol = SleepMusicProtocol::GetInstance();

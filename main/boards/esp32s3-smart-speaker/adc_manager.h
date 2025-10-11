@@ -41,6 +41,9 @@ public:
     // 获取当前检测状态
     DetectionState GetDetectionState() const { return detection_state_; }
     
+    // 设置睡眠状态（由IMU管理器调用）
+    void SetSleepingState();
+    
     // 压力检测触发音乐播放
     void TriggerMusicPlayback();
     void TriggerMusicPauseback();
@@ -72,7 +75,7 @@ private:
         static constexpr int kLyingThreshold = 150;           // 中心阈值（兼容保留）
         static constexpr int kLyingHigh = 160;                // 滞回上阈：进入躺下判定
         static constexpr int kLyingLow  = 140;                 // 滞回下阈：起身判定
-        static constexpr int kDebounceMs = 5000;              // 去抖时长（毫秒）
+        static constexpr int kDebounceMs = 6000;              // 去抖时长（毫秒）
         static constexpr int kRefractoryMs = 2000;            // 状态切换保护期（毫秒）
         static constexpr int kDecayAbove = 1;                 // 计数回退步长（above）
         static constexpr int kDecayBelow = 1;                 // 计数回退步长（below）

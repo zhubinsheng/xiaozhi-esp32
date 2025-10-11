@@ -137,7 +137,7 @@ void SingleLed::OnStateChanged() {
                 return;
                 
             case kStateSleeping:
-                SetColor(DEFAULT_BRIGHTNESS, 0, 0);  // 红色常亮 - 睡着状态
+                SetColor(0, DEFAULT_BRIGHTNESS, 0);                   // 绿色常亮 - 睡着状态
                 TurnOn();
                 ESP_LOGI(TAG, "LED: Red (Sleeping State)");
                 return;

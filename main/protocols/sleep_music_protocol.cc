@@ -40,7 +40,7 @@ void SleepMusicProtocol::CloseAudioChannel() {
 }
 
 bool SleepMusicProtocol::OpenAudioChannel() {
-    std::string url = "ws://180.76.190.230:8765";
+    std::string url = "ws://47.110.80.169:8765";
     
     ESP_LOGI(TAG, "Connecting to sleep music server: %s", url.c_str());
 

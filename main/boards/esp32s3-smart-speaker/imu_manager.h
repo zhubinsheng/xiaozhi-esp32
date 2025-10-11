@@ -26,9 +26,9 @@ public:
         static constexpr uint32_t kInitWarmupSamples = 30;         // 初始化样本数
         static constexpr uint32_t kCalibrationSamples = 100;       // 占位校准样本数
         static constexpr uint32_t kTaskIntervalMs = 100;           // 任务循环间隔
-        static constexpr uint32_t kMinuteMs = 10000;               // 一分钟毫秒数
+        static constexpr uint32_t kMinuteMs = 60000;               // 一分钟毫秒数
         static constexpr float kMinuteStaticRatio = 0.90f;         // 当分钟静止比例阈值
-        static constexpr uint32_t kConsecutiveStaticMinutesForSleep = 2; // 连续静止分钟数阈值
+        static constexpr uint32_t kConsecutiveStaticMinutesForSleep = 5; // 连续静止分钟数阈值
     };
 
 private:

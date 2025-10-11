@@ -105,12 +105,12 @@ void WifiBoard::StartNetwork() {
     wifi_station.Start();
 
     // Try to connect to WiFi, if failed, launch the WiFi configuration AP
-    if (!wifi_station.WaitForConnected(60 * 1000)) {
-        wifi_station.Stop();
-        wifi_config_mode_ = true;
-        EnterWifiConfigMode();
-        return;
-    }
+    // if (!wifi_station.WaitForConnected(60 * 1000)) {
+    //     wifi_station.Stop();
+    //     wifi_config_mode_ = true;
+    //     EnterWifiConfigMode();
+    //     return;
+    // }
 }
 
 NetworkInterface* WifiBoard::GetNetwork() {

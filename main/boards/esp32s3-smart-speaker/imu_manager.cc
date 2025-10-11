@@ -3,6 +3,7 @@
 #include <cmath>
 #include "protocols/sleep_music_protocol.h"
 #include "board.h"
+#include "adc_manager.h"
 
 #define TAG "ImuManager"
 
@@ -189,8 +190,9 @@ void ImuManager::ImuDataTask(void *pvParameters) {
                     } else {
                         consecutive_static_minutes = 0;
                     }
-                    ESP_LOGI(TAG, "IMU minute: samples=%u static=%u ratio=%.1f%% consecutive_static_minutes=%u",
-                             minute_total_samples, minute_static_samples, minute_static_ratio * 100.0f, consecutive_static_minutes);
+                    uint32_t minute_moving_samples = minute_total_samples - minute_static_samples;
+                    ESP_LOGI(TAG, "IMU minute: samples=%u static=%u moving=%u ratio=%.1f%% consecutive_static_minutes=%u",
+                             minute_total_samples, minute_static_samples, minute_moving_samples, minute_static_ratio * 100.0f, consecutive_static_minutes);
                     
                     // 重置下一分钟窗口
                     minute_start_time_ms = now_ms;
@@ -200,11 +202,11 @@ void ImuManager::ImuDataTask(void *pvParameters) {
                 
                 // 连续5分钟静止 → SLEEP
                 if (consecutive_static_minutes >= ImuDetectConfig::kConsecutiveStaticMinutesForSleep) {
-                    ESP_LOGI(TAG, "IMU: Sleep detected by %u static minutes -> Stop sleep music and IMU task",
+                    ESP_LOGI(TAG, "IMU: Sleep detected by %u static minutes -> Stop sleep music and set sleeping state",
                              (unsigned)ImuDetectConfig::kConsecutiveStaticMinutesForSleep);
                     SleepMusicProtocol::GetInstance().StopSleepMusic();
-                    auto led = Board::GetInstance().GetLed();
-                    led->OnStateChanged();
+                    // 设置睡眠状态，LED会自动更新为红色常亮
+                    AdcManager::GetInstance().SetSleepingState();
                     // 任务自删，避免与外部重复删除冲突
                     manager->imu_task_handle_ = nullptr;
                     vTaskDelete(NULL);
